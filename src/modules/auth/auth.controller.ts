@@ -5,12 +5,23 @@ import {
   refreshAccessToken,
   logoutUser,
   getUserById,
+  verifyEmail,
+  resendVerificationEmail,
+  forgotPassword,
+  resetPassword,
 } from './auth.service';
 import {
   getRefreshCookieOptions,
   getClearCookieOptions,
 } from '../../config/cookies';
-import type { RegisterInput, LoginInput } from './auth.validation';
+import type {
+  RegisterInput,
+  LoginInput,
+  VerifyEmailInput,
+  ResendVerificationInput,
+  ForgotPasswordInput,
+  ResetPasswordInput,
+} from './auth.validation';
 import type { AuthRequest } from '../../middleware/auth';
 
 /**
@@ -141,6 +152,76 @@ export async function getMe(
     const user = await getUserById(userId);
 
     res.json({ user });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Verify email endpoint handler
+ */
+export async function verifyEmailHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { token } = req.body as VerifyEmailInput;
+    await verifyEmail(token);
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Resend verification email endpoint handler
+ */
+export async function resendVerification(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { email } = req.body as ResendVerificationInput;
+    await resendVerificationEmail(email);
+    // Always return success to prevent email enumeration
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Forgot password endpoint handler
+ */
+export async function forgotPasswordHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { email } = req.body as ForgotPasswordInput;
+    await forgotPassword(email);
+    // Always return success to prevent email enumeration
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Reset password endpoint handler
+ */
+export async function resetPasswordHandler(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { token, newPassword } = req.body as ResetPasswordInput;
+    await resetPassword(token, newPassword);
+    res.json({ ok: true });
   } catch (error) {
     next(error);
   }

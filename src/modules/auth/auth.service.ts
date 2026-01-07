@@ -13,6 +13,10 @@ import {
   NotFoundError,
 } from '../../utils/errors';
 import type { RegisterInput, LoginInput } from './auth.validation';
+import {
+  sendVerificationEmail,
+  sendPasswordResetEmail,
+} from '../email/email.service';
 
 export interface SafeUser {
   id: string;
@@ -99,6 +103,9 @@ export async function registerUser(
         }
       : null,
   };
+
+  // Send verification email
+  await sendVerificationEmail(user.email, verificationToken);
 
   // Return verification token only in test environment
   if (env.NODE_ENV === 'test') {
@@ -306,4 +313,173 @@ export async function getUserById(userId: string): Promise<SafeUser> {
         }
       : null,
   };
+}
+
+/**
+ * Verify email address using token
+ */
+export async function verifyEmail(token: string): Promise<void> {
+  const tokenHash = hashToken(token);
+
+  // Find token record that is not expired
+  const tokenRecord = await prisma.emailVerificationToken.findFirst({
+    where: {
+      tokenHash,
+      expiresAt: {
+        gt: new Date(),
+      },
+    },
+    include: {
+      user: true,
+    },
+  });
+
+  if (!tokenRecord) {
+    throw new UnauthorizedError('Invalid or expired token');
+  }
+
+  // Update user emailVerifiedAt
+  await prisma.user.update({
+    where: { id: tokenRecord.userId },
+    data: { emailVerifiedAt: new Date() },
+  });
+
+  // Delete token record (use deleteMany to avoid error if already deleted)
+  await prisma.emailVerificationToken.deleteMany({
+    where: { id: tokenRecord.id },
+  });
+}
+
+/**
+ * Resend verification email
+ * No enumeration - always returns success
+ */
+export async function resendVerificationEmail(email: string): Promise<void> {
+  // Find user by email
+  const user = await prisma.user.findUnique({
+    where: { email },
+  });
+
+  // No enumeration - return silently if user doesn't exist
+  if (!user) {
+    return;
+  }
+
+  // If already verified, return silently
+  if (user.emailVerifiedAt) {
+    return;
+  }
+
+  // Delete all existing verification tokens for this user
+  await prisma.emailVerificationToken.deleteMany({
+    where: { userId: user.id },
+  });
+
+  // Generate new token
+  const verificationToken = generateRandomToken();
+  const verificationTokenHash = hashToken(verificationToken);
+
+  // Calculate expiration (24 hours)
+  const expiresAt = new Date();
+  expiresAt.setHours(expiresAt.getHours() + 24);
+
+  // Create new verification token
+  await prisma.emailVerificationToken.create({
+    data: {
+      userId: user.id,
+      tokenHash: verificationTokenHash,
+      expiresAt,
+    },
+  });
+
+  // Send verification email
+  await sendVerificationEmail(user.email, verificationToken);
+}
+
+/**
+ * Forgot password - send reset email
+ * No enumeration - always returns success
+ */
+export async function forgotPassword(email: string): Promise<void> {
+  // Find user by email
+  const user = await prisma.user.findUnique({
+    where: { email },
+  });
+
+  // No enumeration - return silently if user doesn't exist
+  if (!user) {
+    return;
+  }
+
+  // Delete all existing password reset tokens for this user
+  await prisma.passwordResetToken.deleteMany({
+    where: { userId: user.id },
+  });
+
+  // Generate new reset token
+  const resetToken = generateRandomToken();
+  const resetTokenHash = hashToken(resetToken);
+
+  // Calculate expiration (60 minutes)
+  const expiresAt = new Date();
+  expiresAt.setMinutes(expiresAt.getMinutes() + 60);
+
+  // Create new password reset token
+  await prisma.passwordResetToken.create({
+    data: {
+      userId: user.id,
+      tokenHash: resetTokenHash,
+      expiresAt,
+    },
+  });
+
+  // Send password reset email
+  await sendPasswordResetEmail(user.email, resetToken);
+}
+
+/**
+ * Reset password using token
+ */
+export async function resetPassword(
+  token: string,
+  newPassword: string
+): Promise<void> {
+  const tokenHash = hashToken(token);
+
+  // Find token record that is not expired
+  const tokenRecord = await prisma.passwordResetToken.findFirst({
+    where: {
+      tokenHash,
+      expiresAt: {
+        gt: new Date(),
+      },
+    },
+    include: {
+      user: true,
+    },
+  });
+
+  if (!tokenRecord) {
+    throw new UnauthorizedError('Invalid or expired token');
+  }
+
+  // Hash new password
+  const passwordHash = await hashPassword(newPassword);
+
+  // Update user password
+  await prisma.user.update({
+    where: { id: tokenRecord.userId },
+    data: { passwordHash },
+  });
+
+  // Revoke all sessions for this user
+  await prisma.session.updateMany({
+    where: { userId: tokenRecord.userId },
+    data: { status: 'REVOKED' },
+  });
+
+  // Delete reset token record (use deleteMany to avoid error if already deleted)
+  await prisma.passwordResetToken.deleteMany({
+    where: { id: tokenRecord.id },
+  });
 }

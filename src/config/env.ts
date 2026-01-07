@@ -33,6 +33,11 @@ const envSchema = z.object({
     .default('604800000')
     .transform(val => parseInt(val, 10))
     .pipe(z.number().int().min(1)),
+  RESEND_API_KEY: z.string().min(1),
+  EMAIL_FROM: z.string().min(1), // Format: "Name <email@domain.com>" or "email@domain.com"
+  APP_BASE_URL: z.string().url(),
+  EMAIL_VERIFY_PATH: z.string().default('/verify-email'),
+  EMAIL_RESET_PATH: z.string().default('/reset-password'),
 });
 
 type Env = z.infer<typeof envSchema>;

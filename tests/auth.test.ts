@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { createApp } from '../src/server';
 import { prisma } from '../src/db/prisma';
+import { __getSentEmails } from '../src/modules/email/email.service';
 
 const app = createApp();
 
@@ -32,6 +33,12 @@ describe('Auth API', () => {
       });
       expect(user).toBeDefined();
       expect(user?.email).toBe(testUser.email);
+
+      // Verify verification email was sent
+      const sentEmails = __getSentEmails();
+      expect(sentEmails).toHaveLength(1);
+      expect(sentEmails[0].to).toBe(testUser.email);
+      expect(sentEmails[0].subject).toBe('Verify your email address');
     });
 
     it('should return 409 for duplicate email', async () => {
@@ -75,7 +82,30 @@ describe('Auth API', () => {
   describe('POST /auth/login', () => {
     beforeEach(async () => {
       // Register a user before each login test
-      await request(app).post('/auth/register').send(testUser);
+      const registerResponse = await request(app)
+        .post('/auth/register')
+        .send(testUser)
+        .expect(201);
+
+      // Verify user was created
+      const user = await prisma.user.findUnique({
+        where: { email: testUser.email },
+      });
+      if (!user) {
+        throw new Error('User was not created during registration');
+      }
+
+      // Verify email immediately so login works (in test mode, verificationToken is returned)
+      if (registerResponse.body.verificationToken) {
+        const verifyResponse = await request(app)
+          .post('/auth/verify-email')
+          .send({ token: registerResponse.body.verificationToken });
+
+        if (verifyResponse.status !== 200) {
+          console.error('Email verification failed:', verifyResponse.body);
+          // Don't throw, just log - login should still work
+        }
+      }
     });
 
     it('should login successfully and set cookie + return access token', async () => {
@@ -136,12 +166,44 @@ describe('Auth API', () => {
     let accessToken: string;
 
     beforeEach(async () => {
-      // Register and login to get tokens
-      await request(app).post('/auth/register').send(testUser);
+      // Register and verify email, then login to get tokens
+      const registerResponse = await request(app)
+        .post('/auth/register')
+        .send(testUser);
+
+      // Verify email if token is available
+      if (registerResponse.body.verificationToken) {
+        const verifyResponse = await request(app)
+          .post('/auth/verify-email')
+          .send({ token: registerResponse.body.verificationToken });
+
+        if (verifyResponse.status !== 200) {
+          console.error('Email verification failed:', verifyResponse.body);
+        }
+      }
+
+      // Ensure user exists before login
+      const userBeforeLogin = await prisma.user.findUnique({
+        where: { email: testUser.email },
+      });
+      if (!userBeforeLogin) {
+        throw new Error('User does not exist before login attempt');
+      }
+
       const loginResponse = await request(app).post('/auth/login').send({
         email: testUser.email,
         password: testUser.password,
       });
+
+      if (loginResponse.status !== 200) {
+        // Check if user still exists
+        const userAfterLogin = await prisma.user.findUnique({
+          where: { email: testUser.email },
+        });
+        throw new Error(
+          `Login failed: ${JSON.stringify(loginResponse.body)}. User exists: ${!!userAfterLogin}`
+        );
+      }
 
       // Extract refresh token from cookie
       const cookies = loginResponse.headers['set-cookie'];

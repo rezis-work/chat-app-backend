@@ -40,6 +40,12 @@ afterEach(async () => {
   await prisma.passwordResetToken.deleteMany();
   await prisma.userSettings.deleteMany();
   await prisma.user.deleteMany();
+
+  // Clear sent emails in test mode
+  if (process.env.NODE_ENV === 'test') {
+    const { __clearSentEmails } = await import('../src/modules/email/email.service');
+    __clearSentEmails();
+  }
 });
 
 // Close Prisma connection after all tests

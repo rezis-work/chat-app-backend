@@ -1,12 +1,14 @@
 import crypto from 'crypto';
 import argon2 from 'argon2';
+import { env } from '../config/env';
 
 /**
- * Hash a token using SHA-256
+ * Hash a token using SHA-256 with pepper
  * Tokens are hashed before storage in the database
  */
 export function hashToken(token: string): string {
-  return crypto.createHash('sha256').update(token).digest('hex');
+  const pepper = env.COOKIE_SECRET;
+  return crypto.createHash('sha256').update(token + pepper).digest('hex');
 }
 
 /**

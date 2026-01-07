@@ -18,4 +18,6 @@ module.exports = {
   testEnvironmentOptions: {
     NODE_ENV: 'test',
   },
+  // Run tests serially to avoid database race conditions
+  maxWorkers: 1,
 };
