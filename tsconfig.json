@@ -18,9 +18,9 @@
     "noUnusedParameters": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
-    "types": ["node"]
+    "types": ["node", "jest"]
   },
-  "include": ["src/**/*", "prisma.config.ts"],
+  "include": ["src/**/*", "prisma.config.ts", "tests/**/*"],
   "exclude": ["node_modules", "dist"]
 }
 

@@ -1,4 +1,7 @@
 prisma.config.ts
 dist/
 node_modules/
+tests/
+jest.config.js
+scripts/
 

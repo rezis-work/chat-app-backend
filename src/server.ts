@@ -2,9 +2,13 @@ import express, { Express } from 'express';
 import morgan from 'morgan';
 import helmet from 'helmet';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { errorHandler } from './middleware/error-handler';
 import { notFoundHandler } from './middleware/not-found';
 import healthRouter from './routes/health';
+import authRouter from './modules/auth/auth.routes';
+import { getMe } from './modules/auth/auth.controller';
+import { authMiddleware } from './middleware/auth';
 
 export const createApp = (): Express => {
   const app = express();
@@ -23,12 +27,17 @@ export const createApp = (): Express => {
   // Request logging
   app.use(morgan('combined'));
 
+  // Cookie parser middleware
+  app.use(cookieParser());
+
   // Body parsing middleware with size limit
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
   // Routes
   app.use(healthRouter);
+  app.use('/auth', authRouter);
+  app.get('/me', authMiddleware, getMe);
 
   // 404 handler
   app.use(notFoundHandler);

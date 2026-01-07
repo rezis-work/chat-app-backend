@@ -1,8 +1,13 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
+import { resolve } from 'path';
 
 // Load environment variables from .env file
-dotenv.config();
+// In test environment, prefer .env.test if it exists
+if (process.env.NODE_ENV === 'test') {
+  dotenv.config({ path: resolve(__dirname, '../../.env.test') });
+}
+dotenv.config(); // Fallback to .env
 
 const envSchema = z.object({
   PORT: z
@@ -18,6 +23,16 @@ const envSchema = z.object({
   JWT_ACCESS_SECRET: z.string().min(1),
   JWT_REFRESH_SECRET: z.string().min(1),
   COOKIE_SECRET: z.string().min(1),
+  ACCESS_TOKEN_TTL: z
+    .string()
+    .default('900000')
+    .transform(val => parseInt(val, 10))
+    .pipe(z.number().int().min(1)),
+  REFRESH_TOKEN_TTL: z
+    .string()
+    .default('604800000')
+    .transform(val => parseInt(val, 10))
+    .pipe(z.number().int().min(1)),
 });
 
 type Env = z.infer<typeof envSchema>;

@@ -10,27 +10,31 @@ export const errorHandler = (
   err: unknown,
   req: Request,
   res: Response,
-  next: NextFunction
+  _next: NextFunction
 ): void => {
   const error = err as AppError;
   const statusCode = error.statusCode || error.status || 500;
   const isDevelopment = env.NODE_ENV === 'development';
+  const isTest = env.NODE_ENV === 'test';
 
-  // Log error details
-  console.error('Error:', {
-    message: error.message || 'Unknown error',
-    stack: error.stack,
-    statusCode,
-    path: req.path,
-    method: req.method,
-  });
+  // Log error details (skip in test environment to reduce noise)
+  if (!isTest) {
+    console.error('Error:', {
+      message: error.message || 'Unknown error',
+      stack: error.stack,
+      statusCode,
+      path: req.path,
+      method: req.method,
+    });
+  }
 
   // Never leak stack traces in production
   res.status(statusCode).json({
     error: {
-      message: isDevelopment ? (error.message || 'Internal server error') : 'Internal server error',
+      message: isDevelopment
+        ? error.message || 'Internal server error'
+        : 'Internal server error',
       ...(isDevelopment && { stack: error.stack }),
     },
   });
 };
-
