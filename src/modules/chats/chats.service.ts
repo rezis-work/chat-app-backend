@@ -254,6 +254,17 @@ export async function calculateUnreadCount(
 }
 
 /**
+ * Get all chat IDs for a user (for joining socket rooms)
+ */
+export async function getUserChatIds(userId: string): Promise<string[]> {
+  const members = await prisma.chatMember.findMany({
+    where: { userId },
+    select: { chatId: true },
+  });
+  return members.map(m => m.chatId);
+}
+
+/**
  * Get inbox (list of chats for a user)
  */
 export async function getInbox(userId: string): Promise<InboxChat[]> {

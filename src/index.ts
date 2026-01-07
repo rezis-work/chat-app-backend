@@ -1,18 +1,28 @@
+import { createServer } from 'http';
 import { createApp } from './server';
+import { setupSocketIO } from './realtime/socket';
 import { env } from './config/env';
 
 const app = createApp();
+const httpServer = createServer(app);
 
-const server = app.listen(env.PORT, () => {
+// Setup Socket.IO
+const io = setupSocketIO(httpServer);
+
+const server = httpServer.listen(env.PORT, () => {
   console.log(`🚀 Server running on http://localhost:${env.PORT}`);
   console.log(`📦 Environment: ${env.NODE_ENV}`);
+  console.log(`🔌 Socket.IO enabled`);
 });
 
 // Graceful shutdown handler
 const shutdown = (signal: string) => {
   console.log(`\n${signal} received. Shutting down gracefully...`);
+  io.close(() => {
+    console.log('✅ Socket.IO closed');
+  });
   server.close(() => {
-    console.log('✅ Server closed');
+    console.log('✅ HTTP server closed');
     process.exit(0);
   });
 
@@ -33,8 +43,7 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
+process.on('uncaughtException', error => {
   console.error('Uncaught Exception:', error);
   shutdown('uncaughtException');
 });
-
