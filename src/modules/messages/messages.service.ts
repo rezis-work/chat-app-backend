@@ -16,6 +16,7 @@ import {
   getAllMembersViewLanguages,
 } from '../chats/language-preferences.service';
 import { addTranslationJob } from '../../queue/translation.queue';
+import { createNotification } from '../notifications/notifications.service';
 import type { MessageType } from '@prisma/client';
 
 export interface MessageDTO {
@@ -311,6 +312,88 @@ export async function sendMessage(
   // Don't wait for job enqueueing (fire and forget)
   Promise.all(translationJobs).catch(error => {
     console.error('Error enqueueing translation jobs:', error);
+  });
+
+  // Create notifications for all members except sender
+  const notificationPromises = (async () => {
+    // Get all chat members except sender
+    const members = await prisma.chatMember.findMany({
+      where: {
+        chatId,
+        userId: { not: userId },
+      },
+      include: {
+        user: {
+          include: {
+            settings: true,
+          },
+        },
+      },
+    });
+
+    // Check DM request status for DM chats
+    const chat = await prisma.chat.findUnique({
+      where: { id: chatId },
+      include: { dmChat: true },
+    });
+
+    let dmRequestStatus: 'PENDING' | 'ACCEPTED' | null = null;
+    if (chat?.type === 'DM' && chat.dmChat) {
+      const dmRequest = await prisma.dmRequest.findUnique({
+        where: {
+          userAId_userBId: {
+            userAId: chat.dmChat.userAId,
+            userBId: chat.dmChat.userBId,
+          },
+        },
+      });
+      dmRequestStatus = dmRequest?.status === 'PENDING' ? 'PENDING' : 'ACCEPTED';
+    }
+
+    const senderDisplayName =
+      message.sender.settings?.displayName || message.sender.email;
+
+    // Create notifications for each member
+    for (const member of members) {
+      if (chat?.type === 'DM' && dmRequestStatus === 'PENDING') {
+        // DM request notification
+        await createNotification({
+          userId: member.userId,
+          type: 'DM_REQUEST',
+          chatId,
+          messageId: message.id,
+          fromUserId: userId,
+          title: 'New message request',
+          body: `${senderDisplayName}: ${message.content.substring(0, 100)}`,
+          data: {
+            chatId,
+            messageId: message.id,
+          },
+        });
+      } else {
+        // Normal message notification
+        const chatTitle =
+          chat?.type === 'GROUP' ? chat.title : senderDisplayName;
+        await createNotification({
+          userId: member.userId,
+          type: 'MESSAGE',
+          chatId,
+          messageId: message.id,
+          fromUserId: userId,
+          title: chatTitle || 'New message',
+          body: `${senderDisplayName}: ${message.content.substring(0, 100)}`,
+          data: {
+            chatId,
+            messageId: message.id,
+          },
+        });
+      }
+    }
+  })();
+
+  // Don't wait for notifications (fire and forget)
+  notificationPromises.catch(error => {
+    console.error('Error creating notifications:', error);
   });
 
   // Update chat updatedAt

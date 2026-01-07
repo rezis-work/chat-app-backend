@@ -12,6 +12,7 @@ import blocksRouter from './modules/blocks/blocks.routes';
 import dmRouter from './modules/dm/dm.routes';
 import chatsRouter from './modules/chats/chats.routes';
 import messagesRootRouter from './modules/messages/messages-root.routes';
+import notificationsRouter from './modules/notifications/notifications.routes';
 import { getMe } from './modules/auth/auth.controller';
 import { authMiddleware } from './middleware/auth';
 
@@ -47,6 +48,7 @@ export const createApp = (): Express => {
   app.use('/dm', dmRouter);
   app.use('/chats', chatsRouter);
   app.use('/messages', authMiddleware, messagesRootRouter);
+  app.use('/notifications', notificationsRouter);
   app.get('/me', authMiddleware, getMe);
 
   // 404 handler

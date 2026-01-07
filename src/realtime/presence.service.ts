@@ -4,6 +4,7 @@ const PRESENCE_TTL = 60; // seconds
 const PRESENCE_KEY_PREFIX = 'presence:user:';
 const SOCKET_KEY_PREFIX = 'socket:user:';
 const LAST_SEEN_KEY_PREFIX = 'lastSeen:user:';
+const CHAT_ROOM_KEY_PREFIX = 'chat:room:user:';
 
 /**
  * Mark user as online
@@ -94,4 +95,40 @@ export async function refreshPresenceTTL(userId: string): Promise<void> {
     // Refresh TTL
     await redis.expire(presenceKey, PRESENCE_TTL);
   }
+}
+
+/**
+ * Track that a socket joined a chat room
+ */
+export async function trackChatRoomJoin(
+  userId: string,
+  socketId: string,
+  chatId: string
+): Promise<void> {
+  const key = `${CHAT_ROOM_KEY_PREFIX}${userId}`;
+  await redis.sadd(key, `${socketId}:${chatId}`);
+}
+
+/**
+ * Track that a socket left a chat room
+ */
+export async function trackChatRoomLeave(
+  userId: string,
+  socketId: string,
+  chatId: string
+): Promise<void> {
+  const key = `${CHAT_ROOM_KEY_PREFIX}${userId}`;
+  await redis.srem(key, `${socketId}:${chatId}`);
+}
+
+/**
+ * Check if user is currently in a specific chat room
+ */
+export async function isUserInChatRoom(
+  userId: string,
+  chatId: string
+): Promise<boolean> {
+  const key = `${CHAT_ROOM_KEY_PREFIX}${userId}`;
+  const members = await redis.smembers(key);
+  return members.some(m => m.endsWith(`:${chatId}`));
 }

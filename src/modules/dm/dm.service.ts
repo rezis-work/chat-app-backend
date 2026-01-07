@@ -6,6 +6,7 @@ import {
   ConflictError,
 } from '../../utils/errors';
 import { validateMessagePermission } from '../../utils/message-permissions';
+import { createNotification } from '../notifications/notifications.service';
 import type { DmRequest, DmRequestStatus } from '@prisma/client';
 
 export interface DmRequestInfo {
@@ -278,6 +279,32 @@ export async function createOrUpdateDmRequest(
       status: 'PENDING',
       lastMessageAt: new Date(),
     },
+  });
+
+  // Create notification for receiver (if not already created by message flow)
+  // Note: This notification will be created even if a message notification is also created
+  // The message notification will have more context (messageId, chatId)
+  // receiverId parameter is already the receiver, use it directly
+
+  const sender = await prisma.user.findUnique({
+    where: { id: senderId },
+    include: { settings: true },
+  });
+
+  const senderDisplayName = sender?.settings?.displayName || sender?.email;
+
+  // Don't wait for notification (fire and forget)
+  createNotification({
+    userId: receiverId,
+    type: 'DM_REQUEST',
+    fromUserId: senderId,
+    title: 'New message request',
+    body: `${senderDisplayName} wants to send you a message`,
+    data: {
+      dmRequestId: dmRequest.id,
+    },
+  }).catch(error => {
+    console.error('Error creating DM request notification:', error);
   });
 
   return dmRequest;

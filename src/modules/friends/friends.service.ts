@@ -6,6 +6,7 @@ import {
   ForbiddenError,
   ValidationError,
 } from '../../utils/errors';
+import { createNotification } from '../notifications/notifications.service';
 import type { Friendship, FriendshipStatus } from '@prisma/client';
 
 export interface Friend {
@@ -93,6 +94,29 @@ export async function requestFriendship(
       requestedById: requesterId,
       status: 'PENDING',
     },
+  });
+
+  // Create notification for receiver
+  const requester = await prisma.user.findUnique({
+    where: { id: requesterId },
+    include: { settings: true },
+  });
+
+  const requesterDisplayName =
+    requester?.settings?.displayName || requester?.email;
+
+  // Don't wait for notification (fire and forget)
+  createNotification({
+    userId: addresseeId,
+    type: 'FRIEND_REQUEST',
+    fromUserId: requesterId,
+    title: 'New friend request',
+    body: `${requesterDisplayName} wants to be your friend`,
+    data: {
+      friendshipId: friendship.id,
+    },
+  }).catch(error => {
+    console.error('Error creating friend request notification:', error);
   });
 
   return friendship;

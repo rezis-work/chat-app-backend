@@ -28,6 +28,8 @@ export interface ServerToClientEvents {
     lang: string;
     content: string;
   }) => void;
+  'notification:new': (data: { notification: any }) => void;
+  'notification:read': (data: { notificationId: string }) => void;
   error: (data: { message: string }) => void;
 }
 

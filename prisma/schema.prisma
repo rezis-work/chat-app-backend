@@ -49,6 +49,13 @@ enum MessageType {
   SYSTEM
 }
 
+enum NotificationType {
+  MESSAGE
+  DM_REQUEST
+  FRIEND_REQUEST
+  SYSTEM
+}
+
 model User {
   id               String                 @id @default(cuid())
   email            String                 @unique
@@ -77,6 +84,8 @@ model User {
   dmChatsAsA            DmChat[]                     @relation("DmChatUserA")
   dmChatsAsB            DmChat[]                     @relation("DmChatUserB")
   chatLanguagePreferences ChatLanguagePreference[]    @relation("ChatLanguagePreferenceUser")
+  notifications           Notification[]              @relation("NotificationUser")
+  notificationsFromMe     Notification[]              @relation("NotificationFromUser")
 
   @@map("users")
 }
@@ -217,6 +226,7 @@ model Chat {
   messages           Message[]
   dmChat             DmChat?
   languagePreferences ChatLanguagePreference[]
+  notifications      Notification[]           @relation("NotificationChat")
 
   @@index([type, updatedAt])
   @@map("chats")
@@ -257,6 +267,7 @@ model Message {
   sender        User                @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
   readBy        ChatMember[]        @relation("MessageReadBy")
   translations MessageTranslation[]
+  notifications Notification[]      @relation("NotificationMessage")
 
   @@index([chatId, createdAt])
   @@index([senderId])
@@ -312,5 +323,29 @@ model MessageTranslation {
   @@unique([messageId, lang])
   @@index([lang])
   @@map("message_translations")
+}
+
+model Notification {
+  id          String           @id @default(cuid())
+  userId      String           // Receiver
+  type        NotificationType
+  chatId      String?
+  messageId   String?
+  fromUserId  String?
+  title       String
+  body        String
+  data        Json?            // Optional extra payload
+  readAt      DateTime?
+  createdAt   DateTime         @default(now())
+
+  // Relations
+  user        User             @relation("NotificationUser", fields: [userId], references: [id], onDelete: Cascade)
+  chat        Chat?            @relation("NotificationChat", fields: [chatId], references: [id], onDelete: Cascade)
+  message     Message?         @relation("NotificationMessage", fields: [messageId], references: [id], onDelete: Cascade)
+  fromUser    User?            @relation("NotificationFromUser", fields: [fromUserId], references: [id], onDelete: SetNull)
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+  @@map("notifications")
 }
 

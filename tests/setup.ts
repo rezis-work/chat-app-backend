@@ -26,6 +26,7 @@ beforeAll(async () => {
   }
 
   // Clean up test data
+  await prisma.notification.deleteMany();
   await prisma.messageTranslation.deleteMany();
   await prisma.chatLanguagePreference.deleteMany();
   await prisma.message.deleteMany();
@@ -44,6 +45,7 @@ beforeAll(async () => {
 
 // Clean up after each test
 afterEach(async () => {
+  await prisma.notification.deleteMany();
   await prisma.messageTranslation.deleteMany();
   await prisma.chatLanguagePreference.deleteMany();
   await prisma.message.deleteMany();

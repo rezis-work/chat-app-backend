@@ -16,6 +16,8 @@ import {
   markUserOnline,
   markUserOffline,
   refreshPresenceTTL,
+  trackChatRoomJoin,
+  trackChatRoomLeave,
 } from './presence.service';
 import {
   ClientToServerEvents,
@@ -106,9 +108,10 @@ export function setupSocketIO(
         // Get all chats user is member of
         const chatIds = await getUserChatIds(userId);
 
-        // Join all chat rooms
+        // Join all chat rooms and track them
         for (const chatId of chatIds) {
           socket.join(`chat:${chatId}`);
+          await trackChatRoomJoin(userId, socket.id, chatId);
         }
 
         // Emit presence update to all chat rooms user is member of
@@ -133,6 +136,9 @@ export function setupSocketIO(
 
             // Join room
             socket.join(`chat:${chatId}`);
+
+            // Track chat room join
+            await trackChatRoomJoin(userId, socket.id, chatId);
           } catch (error) {
             socket.emit('error', {
               message:
@@ -153,6 +159,9 @@ export function setupSocketIO(
 
             // Leave room
             socket.leave(`chat:${chatId}`);
+
+            // Track chat room leave
+            await trackChatRoomLeave(userId, socket.id, chatId);
           } catch (error) {
             socket.emit('error', {
               message:
@@ -269,6 +278,21 @@ export function setupSocketIO(
           try {
             // Get chat IDs before marking offline (to emit presence update)
             const chatIds = await getUserChatIds(userId);
+
+            // Clean up chat room tracking for this socket
+            const chatRoomKey = `chat:room:user:${userId}`;
+            const members = await redis.smembers(chatRoomKey);
+            const thisSocketRooms = members.filter(m =>
+              m.startsWith(`${socket.id}:`)
+            );
+            for (const member of thisSocketRooms) {
+              // Format is "socketId:chatId", extract chatId (everything after first colon)
+              const parts = member.split(':');
+              if (parts.length >= 2) {
+                const chatId = parts.slice(1).join(':'); // Handle chatId that might contain colons
+                await trackChatRoomLeave(userId, socket.id, chatId);
+              }
+            }
 
             // Mark user offline
             await markUserOffline(userId, socket.id);
