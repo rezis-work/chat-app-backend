@@ -11,6 +11,11 @@ import {
 } from '../dm/dm.service';
 import { normalizeUserPair } from '../../utils/user-pairs';
 import { canSendMessage } from '../../utils/message-permissions';
+import { getOrCreateTranslation } from '../translation/translation.service';
+import {
+  getDefaultLanguagePreference,
+  getAllMembersViewLanguages,
+} from '../chats/language-preferences.service';
 import type { MessageType } from '@prisma/client';
 
 export interface MessageDTO {
@@ -18,7 +23,10 @@ export interface MessageDTO {
   chatId: string;
   senderId: string;
   type: MessageType;
-  content: string;
+  content: string; // localized for requester
+  contentOriginal?: string; // original content (only if different)
+  langOriginal: string; // original language code
+  langShown: string; // language shown to requester
   createdAt: Date;
   editedAt: Date | null;
   deletedAt: Date | null;
@@ -61,6 +69,10 @@ export async function getMessages(
     }
   }
 
+  // Get requester's viewLanguage preference (default "en")
+  const requesterPref = await getDefaultLanguagePreference(userId, chatId);
+  const requesterViewLang = requesterPref.viewLanguage;
+
   // Fetch limit+1 to check if there are more messages
   const messages = await prisma.message.findMany({
     where,
@@ -74,6 +86,7 @@ export async function getMessages(
           settings: true,
         },
       },
+      translations: true,
     },
   });
 
@@ -86,17 +99,72 @@ export async function getMessages(
     ? messagesToReturn[messagesToReturn.length - 1].id
     : undefined;
 
+  // Process messages to return localized content
+  const localizedMessages = await Promise.all(
+    messagesToReturn.map(async msg => {
+      // Get sender's myLanguage preference (default "en") - this is the original language
+      const senderPref = await getDefaultLanguagePreference(
+        msg.senderId,
+        chatId
+      );
+      const originalLang = senderPref.myLanguage;
+
+      // If requester's viewLanguage === sender's myLanguage, return original
+      if (requesterViewLang === originalLang) {
+        return {
+          id: msg.id,
+          chatId: msg.chatId,
+          senderId: msg.senderId,
+          type: msg.type,
+          content: msg.content,
+          langOriginal: originalLang,
+          langShown: originalLang,
+          createdAt: msg.createdAt,
+          editedAt: msg.editedAt,
+          deletedAt: msg.deletedAt,
+        };
+      }
+
+      // Find translation for requester's viewLanguage
+      const translation = msg.translations.find(
+        t => t.lang === requesterViewLang
+      );
+
+      if (translation) {
+        // Return translated content with original
+        return {
+          id: msg.id,
+          chatId: msg.chatId,
+          senderId: msg.senderId,
+          type: msg.type,
+          content: translation.content,
+          contentOriginal: msg.content,
+          langOriginal: originalLang,
+          langShown: requesterViewLang,
+          createdAt: msg.createdAt,
+          editedAt: msg.editedAt,
+          deletedAt: msg.deletedAt,
+        };
+      }
+
+      // Fallback to original content if translation doesn't exist
+      return {
+        id: msg.id,
+        chatId: msg.chatId,
+        senderId: msg.senderId,
+        type: msg.type,
+        content: msg.content,
+        langOriginal: originalLang,
+        langShown: originalLang,
+        createdAt: msg.createdAt,
+        editedAt: msg.editedAt,
+        deletedAt: msg.deletedAt,
+      };
+    })
+  );
+
   return {
-    messages: messagesToReturn.map(msg => ({
-      id: msg.id,
-      chatId: msg.chatId,
-      senderId: msg.senderId,
-      type: msg.type,
-      content: msg.content,
-      createdAt: msg.createdAt,
-      editedAt: msg.editedAt,
-      deletedAt: msg.deletedAt,
-    })),
+    messages: localizedMessages,
     nextCursor,
   };
 }
@@ -193,6 +261,37 @@ export async function sendMessage(
     },
   });
 
+  // Get sender's myLanguage preference (default "en")
+  const senderPref = await getDefaultLanguagePreference(userId, chatId);
+  const originalLang = senderPref.myLanguage;
+
+  // Get all members' viewLanguage preferences (default "en" if not set)
+  const targetLanguages = await getAllMembersViewLanguages(chatId);
+
+  // Create translations for required languages
+  const translationPromises = targetLanguages
+    .filter(targetLang => targetLang !== originalLang) // Skip if same as original
+    .map(targetLang =>
+      getOrCreateTranslation(
+        message.id,
+        originalLang,
+        targetLang,
+        message.content
+      ).catch(error => {
+        // Log error but don't fail message creation
+        console.error(
+          `Failed to create translation for message ${message.id} to ${targetLang}:`,
+          error
+        );
+        return null;
+      })
+    );
+
+  // Create translations asynchronously (don't wait for completion)
+  Promise.all(translationPromises).catch(error => {
+    console.error('Error creating translations:', error);
+  });
+
   // Update chat updatedAt
   await prisma.chat.update({
     where: { id: chatId },
@@ -205,6 +304,8 @@ export async function sendMessage(
     senderId: message.senderId,
     type: message.type,
     content: message.content,
+    langOriginal: originalLang,
+    langShown: originalLang,
     createdAt: message.createdAt,
     editedAt: message.editedAt,
     deletedAt: message.deletedAt,
@@ -256,12 +357,18 @@ export async function editMessage(
     },
   });
 
+  // Get sender's myLanguage preference for return value
+  const senderPrefEdit = await getDefaultLanguagePreference(userId, updatedMessage.chatId);
+  const originalLangEdit = senderPrefEdit.myLanguage;
+
   return {
     id: updatedMessage.id,
     chatId: updatedMessage.chatId,
     senderId: updatedMessage.senderId,
     type: updatedMessage.type,
     content: updatedMessage.content,
+    langOriginal: originalLangEdit,
+    langShown: originalLangEdit,
     createdAt: updatedMessage.createdAt,
     editedAt: updatedMessage.editedAt,
     deletedAt: updatedMessage.deletedAt,

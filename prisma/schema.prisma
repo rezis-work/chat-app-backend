@@ -76,6 +76,7 @@ model User {
   messagesSent           Message[]                   @relation("MessageSender")
   dmChatsAsA            DmChat[]                     @relation("DmChatUserA")
   dmChatsAsB            DmChat[]                     @relation("DmChatUserB")
+  chatLanguagePreferences ChatLanguagePreference[]    @relation("ChatLanguagePreferenceUser")
 
   @@map("users")
 }
@@ -211,10 +212,11 @@ model Chat {
   updatedAt DateTime @updatedAt
 
   // Relations
-  createdBy User        @relation("ChatCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
-  members   ChatMember[]
-  messages  Message[]
-  dmChat    DmChat?
+  createdBy          User                    @relation("ChatCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  members            ChatMember[]
+  messages           Message[]
+  dmChat             DmChat?
+  languagePreferences ChatLanguagePreference[]
 
   @@index([type, updatedAt])
   @@map("chats")
@@ -251,9 +253,10 @@ model Message {
   deletedAt DateTime?
 
   // Relations
-  chat          Chat         @relation(fields: [chatId], references: [id], onDelete: Cascade)
-  sender        User         @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
-  readBy        ChatMember[] @relation("MessageReadBy")
+  chat          Chat                @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender        User                @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  readBy        ChatMember[]        @relation("MessageReadBy")
+  translations MessageTranslation[]
 
   @@index([chatId, createdAt])
   @@index([senderId])
@@ -275,5 +278,39 @@ model DmChat {
   @@index([userAId])
   @@index([userBId])
   @@map("dm_chats")
+}
+
+model ChatLanguagePreference {
+  id           String   @id @default(cuid())
+  chatId       String
+  userId       String
+  myLanguage   String
+  viewLanguage String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user User @relation("ChatLanguagePreferenceUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([chatId, userId])
+  @@index([userId])
+  @@map("chat_language_preferences")
+}
+
+model MessageTranslation {
+  id        String   @id @default(cuid())
+  messageId String
+  lang      String
+  content   String
+  provider  String   @default("mock")
+  createdAt DateTime @default(now())
+
+  // Relations
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, lang])
+  @@index([lang])
+  @@map("message_translations")
 }
 

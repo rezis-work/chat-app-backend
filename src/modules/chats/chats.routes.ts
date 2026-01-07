@@ -13,6 +13,7 @@ import {
 } from './chats.controller';
 import { authMiddleware } from '../../middleware/auth';
 import messagesRouter from '../messages/messages.routes';
+import languagePreferencesRouter from './language-preferences.routes';
 
 const router: ExpressRouter = Router();
 
@@ -28,6 +29,9 @@ router.post('/:chatId/read', validateMarkChatAsRead, markChatAsReadHandler);
 
 // Messages routes (nested under chats, chatId available via req.params.chatId)
 router.use('/:chatId/messages', messagesRouter);
+
+// Language preference routes (nested under chats, chatId available via req.params.chatId)
+router.use('/:chatId/language', languagePreferencesRouter);
 
 export default router;
 
