@@ -11,11 +11,11 @@ import {
 } from '../dm/dm.service';
 import { normalizeUserPair } from '../../utils/user-pairs';
 import { canSendMessage } from '../../utils/message-permissions';
-import { getOrCreateTranslation } from '../translation/translation.service';
 import {
   getDefaultLanguagePreference,
   getAllMembersViewLanguages,
 } from '../chats/language-preferences.service';
+import { addTranslationJob } from '../../queue/translation.queue';
 import type { MessageType } from '@prisma/client';
 
 export interface MessageDTO {
@@ -268,28 +268,49 @@ export async function sendMessage(
   // Get all members' viewLanguage preferences (default "en" if not set)
   const targetLanguages = await getAllMembersViewLanguages(chatId);
 
-  // Create translations for required languages
-  const translationPromises = targetLanguages
-    .filter(targetLang => targetLang !== originalLang) // Skip if same as original
-    .map(targetLang =>
-      getOrCreateTranslation(
-        message.id,
-        originalLang,
-        targetLang,
-        message.content
-      ).catch(error => {
-        // Log error but don't fail message creation
-        console.error(
-          `Failed to create translation for message ${message.id} to ${targetLang}:`,
-          error
-        );
-        return null;
-      })
-    );
+  // Safety limit: max 10 target languages per message
+  const limitedTargetLanguages =
+    targetLanguages.length > 10
+      ? targetLanguages.slice(0, 10)
+      : targetLanguages;
 
-  // Create translations asynchronously (don't wait for completion)
-  Promise.all(translationPromises).catch(error => {
-    console.error('Error creating translations:', error);
+  if (targetLanguages.length > 10) {
+    console.warn(
+      `Message ${message.id} has ${targetLanguages.length} target languages, limiting to 10`
+    );
+  }
+
+  // Enqueue translation jobs for required languages
+  const translationJobs = limitedTargetLanguages
+    .filter(targetLang => targetLang !== originalLang) // Skip if same as original
+    .map(async targetLang => {
+      // Check if translation already exists
+      const existing = await prisma.messageTranslation.findUnique({
+        where: {
+          messageId_lang: {
+            messageId: message.id,
+            lang: targetLang,
+          },
+        },
+      });
+
+      if (existing) {
+        return; // Skip if already exists
+      }
+
+      // Enqueue translation job
+      await addTranslationJob({
+        messageId: message.id,
+        chatId,
+        fromLang: originalLang,
+        toLang: targetLang,
+        originalContent: message.content,
+      });
+    });
+
+  // Don't wait for job enqueueing (fire and forget)
+  Promise.all(translationJobs).catch(error => {
+    console.error('Error enqueueing translation jobs:', error);
   });
 
   // Update chat updatedAt

@@ -38,6 +38,18 @@ const envSchema = z.object({
   APP_BASE_URL: z.string().url(),
   EMAIL_VERIFY_PATH: z.string().default('/verify-email'),
   EMAIL_RESET_PATH: z.string().default('/reset-password'),
+  OPENAI_API_KEY: z.string().min(1).optional(),
+  TRANSLATION_QUEUE_NAME: z.string().default('translation'),
+  TRANSLATION_CONCURRENCY: z
+    .string()
+    .default('5')
+    .transform(val => parseInt(val, 10))
+    .pipe(z.number().int().min(1)),
+  TRANSLATION_MAX_RETRIES: z
+    .string()
+    .default('5')
+    .transform(val => parseInt(val, 10))
+    .pipe(z.number().int().min(1)),
 });
 
 type Env = z.infer<typeof envSchema>;

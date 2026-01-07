@@ -20,4 +20,10 @@ module.exports = {
   },
   // Run tests serially to avoid database race conditions
   maxWorkers: 1,
+  // Force exit after tests complete (safety net for CI/CD)
+  // This ensures Jest exits even if there are open handles
+  forceExit: true,
+  // Detect open handles (useful for debugging, but can slow tests)
+  // Uncomment to debug hanging tests:
+  // detectOpenHandles: true,
 };

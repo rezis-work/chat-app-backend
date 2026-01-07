@@ -22,6 +22,12 @@ export interface ServerToClientEvents {
     userId: string;
     lastReadMessageId: string;
   }) => void;
+  'message:translated': (data: {
+    chatId: string;
+    messageId: string;
+    lang: string;
+    content: string;
+  }) => void;
   error: (data: { message: string }) => void;
 }
 

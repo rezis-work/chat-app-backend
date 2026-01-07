@@ -1,8 +1,166 @@
 import request from 'supertest';
 import { createApp } from '../src/server';
 import { prisma } from '../src/db/prisma';
+import { Worker } from 'bullmq';
+import { TranslationJobData } from '../src/queue/translation.queue';
+import { getTranslationProvider } from '../src/modules/translation/translation.provider';
+import {
+  emitTranslationEvent,
+  closeSocketIOForWorker,
+} from '../src/realtime/translation-events';
 
 const app = createApp();
+
+// Helper function to get Redis connection config
+function getConnection() {
+  const url = new URL(process.env.REDIS_URL || 'redis://localhost:6379');
+  return {
+    host: url.hostname,
+    port: parseInt(url.port || '6379', 10),
+    password: url.password || undefined,
+  };
+}
+
+// Global worker for processing translation jobs in tests
+let globalWorker: Worker<TranslationJobData> | null = null;
+
+// Setup worker before all tests
+beforeAll(async () => {
+  // Create test worker that processes jobs immediately
+  globalWorker = new Worker<TranslationJobData>(
+    'translation',
+    async job => {
+      try {
+        const { messageId, chatId, fromLang, toLang, originalContent } =
+          job.data;
+
+        // Verify message still exists
+        const message = await prisma.message.findUnique({
+          where: { id: messageId },
+        });
+
+        if (!message || message.deletedAt) {
+          throw new Error(`Message ${messageId} not found or deleted`);
+        }
+
+        // Check if translation already exists
+        const existing = await prisma.messageTranslation.findUnique({
+          where: {
+            messageId_lang: {
+              messageId,
+              lang: toLang,
+            },
+          },
+        });
+
+        if (existing) {
+          return { skipped: true, translationId: existing.id };
+        }
+
+        // Get translation provider (mock in test)
+        const provider = getTranslationProvider();
+
+        // Translate content
+        const translatedContent = await provider.translate(
+          originalContent,
+          fromLang,
+          toLang
+        );
+
+        // Create translation record
+        const translation = await prisma.messageTranslation.create({
+          data: {
+            messageId,
+            lang: toLang,
+            content: translatedContent,
+            provider: 'mock',
+          },
+        });
+
+        // Emit socket event
+        await emitTranslationEvent(chatId, {
+          messageId,
+          lang: toLang,
+          content: translatedContent,
+        });
+
+        return { translationId: translation.id };
+      } catch (error) {
+        console.error('Worker error:', error);
+        throw error;
+      }
+    },
+    {
+      connection: getConnection(),
+      concurrency: 5,
+    }
+  );
+
+  // Suppress unhandled error events (they're expected when jobs are processed quickly)
+  globalWorker.on('error', error => {
+    const errorWithCode = error as Error & { code?: number };
+    if (error.message?.includes('Missing key') || errorWithCode.code === -1) {
+      return;
+    }
+    console.error('Worker error:', error);
+  });
+});
+
+// Cleanup worker after all tests
+afterAll(async () => {
+  try {
+    // Wait for any active jobs to complete
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Close worker
+    if (globalWorker) {
+      await globalWorker.close();
+    }
+    
+    // Close Socket.IO instance created by translation-events
+    await closeSocketIOForWorker();
+    
+    // Wait for connections to close
+    await new Promise(resolve => setTimeout(resolve, 500));
+  } catch (error) {
+    // Ignore cleanup errors
+  }
+});
+
+// Helper function to wait for translations to be processed
+async function waitForTranslations(
+  messageId: string,
+  expectedLangs: string[],
+  timeout = 5000
+): Promise<void> {
+  const startTime = Date.now();
+  
+  while (Date.now() - startTime < timeout) {
+    const translations = await prisma.messageTranslation.findMany({
+      where: { messageId },
+    });
+    
+    const foundLangs = translations.map(t => t.lang).sort();
+    const expectedLangsSorted = [...expectedLangs].sort();
+    
+    if (
+      foundLangs.length === expectedLangsSorted.length &&
+      foundLangs.every((lang, idx) => lang === expectedLangsSorted[idx])
+    ) {
+      return; // All translations found
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  
+  // If we get here, translations weren't found in time
+  const translations = await prisma.messageTranslation.findMany({
+    where: { messageId },
+  });
+  throw new Error(
+    `Timeout waiting for translations. Expected: ${expectedLangs.join(', ')}, Found: ${translations.map(t => t.lang).join(', ')}`
+  );
+}
 
 // Helper function to register and verify a user
 async function createVerifiedUser(
@@ -236,12 +394,14 @@ describe('Translation Per-Chat API', () => {
       expect(response.body.ok).toBe(true);
       expect(response.body.message.content).toBe(georgianText);
 
-      // Wait a bit for async translation creation
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const messageId = response.body.message.id;
+
+      // Wait for translation to be processed by worker
+      await waitForTranslations(messageId, ['es']);
 
       // Verify original message stored with Georgian content
       const message = await prisma.message.findUnique({
-        where: { id: response.body.message.id },
+        where: { id: messageId },
       });
 
       expect(message?.content).toBe(georgianText);
@@ -324,8 +484,8 @@ describe('Translation Per-Chat API', () => {
 
       messageId = messageResponse.body.message.id;
 
-      // Wait for translation to be created
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Wait for translation to be processed by worker
+      await waitForTranslations(messageId, ['es']);
     });
 
     it('should return Spanish translation for userB', async () => {
@@ -430,8 +590,8 @@ describe('Translation Per-Chat API', () => {
 
       const messageId = messageResponse.body.message.id;
 
-      // Wait for translations to be created
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Wait for translations to be processed by worker
+      await waitForTranslations(messageId, ['es', 'en']);
 
       // Verify translations created: one for es, one for en (not for ka)
       const translations = await prisma.messageTranslation.findMany({
@@ -510,8 +670,8 @@ describe('Translation Per-Chat API', () => {
 
       const message1Id = message1Response.body.message.id;
 
-      // Wait for translation
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Wait for translation to be processed
+      await waitForTranslations(message1Id, ['es']);
 
       // Count translations before second message
       const translationsBefore = await prisma.messageTranslation.count({
@@ -527,8 +687,8 @@ describe('Translation Per-Chat API', () => {
 
       const message2Id = message2Response.body.message.id;
 
-      // Wait for translation
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Wait for translation to be processed
+      await waitForTranslations(message2Id, ['es']);
 
       // Verify two separate translations created (one per message)
       const translationsAfter = await prisma.messageTranslation.count({
@@ -602,14 +762,16 @@ describe('Translation Per-Chat API', () => {
       const georgianText = 'გამარჯობა';
 
       // Send message from userA
-      await request(app)
+      const messageResponse = await request(app)
         .post(`/chats/${chatId}/messages`)
         .set('Authorization', `Bearer ${userA.accessToken}`)
         .send({ content: georgianText })
         .expect(201);
 
-      // Wait for translation
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const messageId = messageResponse.body.message.id;
+
+      // Wait for translation to be processed (userB defaults to en)
+      await waitForTranslations(messageId, ['en']);
 
       // userB fetches messages (no preference, defaults to en)
       const response = await request(app)
@@ -636,10 +798,29 @@ describe('Translation Per-Chat API', () => {
         .send({ content: englishText })
         .expect(201);
 
+      const messageId = messageResponse.body.message.id;
+
+      // Wait for translation to be created first (userB's viewLanguage defaults to 'en')
+      await waitForTranslations(messageId, ['en']);
+
       // Manually delete translation to simulate missing translation
       await prisma.messageTranslation.deleteMany({
-        where: { messageId: messageResponse.body.message.id },
+        where: { messageId },
       });
+
+      // Wait a bit to ensure no new translation job is processed
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Verify translation is actually deleted
+      const deletedTranslation = await prisma.messageTranslation.findUnique({
+        where: {
+          messageId_lang: {
+            messageId,
+            lang: 'en',
+          },
+        },
+      });
+      expect(deletedTranslation).toBeNull();
 
       // userB fetches messages
       const response = await request(app)
@@ -650,7 +831,7 @@ describe('Translation Per-Chat API', () => {
       expect(response.body.messages).toHaveLength(1);
       const message = response.body.messages[0];
 
-      // Should fallback to original
+      // Should fallback to original (since translation was deleted)
       expect(message.content).toBe(englishText);
       expect(message.langShown).toBe('ka'); // Falls back to original lang
       expect(message.contentOriginal).toBeUndefined();

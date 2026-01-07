@@ -61,14 +61,35 @@ afterEach(async () => {
 
   // Clear sent emails in test mode
   if (process.env.NODE_ENV === 'test') {
-    const { __clearSentEmails } = await import('../src/modules/email/email.service');
+    const { __clearSentEmails } =
+      await import('../src/modules/email/email.service');
     __clearSentEmails();
+  }
+
+  // Clean up translation queue
+  if (process.env.NODE_ENV === 'test') {
+    try {
+      const { translationQueue } =
+        await import('../src/queue/translation.queue');
+      await translationQueue.obliterate({ force: true });
+    } catch (error) {
+      // Queue might not exist, ignore
+    }
   }
 });
 
 // Close Prisma connection after all tests
 afterAll(async () => {
   await prisma.$disconnect();
+
+  // Close Redis singleton (shared across tests)
+  try {
+    const { redis } = await import('../src/db/redis');
+    redis.disconnect();
+  } catch (error) {
+    // Ignore errors
+  }
+
   // Give time for connections to close
   await new Promise(resolve => setTimeout(resolve, 1000));
 });
