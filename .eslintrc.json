@@ -9,6 +9,7 @@
     "sourceType": "module",
     "project": "./backend/tsconfig.json"
   },
+  "ignorePatterns": ["prisma.config.ts", "dist/**", "node_modules/**"],
   "plugins": ["@typescript-eslint"],
   "env": {
     "node": true,
