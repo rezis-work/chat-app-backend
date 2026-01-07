@@ -26,18 +26,32 @@ beforeAll(async () => {
   }
 
   // Clean up test data
+  await prisma.message.deleteMany();
+  await prisma.chatMember.deleteMany();
+  await prisma.dmChat.deleteMany();
+  await prisma.chat.deleteMany();
   await prisma.session.deleteMany();
   await prisma.emailVerificationToken.deleteMany();
   await prisma.passwordResetToken.deleteMany();
+  await prisma.dmRequest.deleteMany();
+  await prisma.friendship.deleteMany();
+  await prisma.userBlock.deleteMany();
   await prisma.userSettings.deleteMany();
   await prisma.user.deleteMany();
 });
 
 // Clean up after each test
 afterEach(async () => {
+  await prisma.message.deleteMany();
+  await prisma.chatMember.deleteMany();
+  await prisma.dmChat.deleteMany();
+  await prisma.chat.deleteMany();
   await prisma.session.deleteMany();
   await prisma.emailVerificationToken.deleteMany();
   await prisma.passwordResetToken.deleteMany();
+  await prisma.dmRequest.deleteMany();
+  await prisma.friendship.deleteMany();
+  await prisma.userBlock.deleteMany();
   await prisma.userSettings.deleteMany();
   await prisma.user.deleteMany();
 

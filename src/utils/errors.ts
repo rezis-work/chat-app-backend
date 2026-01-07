@@ -39,3 +39,13 @@ export class NotFoundError extends Error implements AppError {
     this.name = 'NotFoundError';
   }
 }
+
+export class ForbiddenError extends Error implements AppError {
+  statusCode = 403;
+  status = 403;
+
+  constructor(message: string = 'Forbidden') {
+    super(message);
+    this.name = 'ForbiddenError';
+  }
+}

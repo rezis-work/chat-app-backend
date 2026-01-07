@@ -7,6 +7,11 @@ import { errorHandler } from './middleware/error-handler';
 import { notFoundHandler } from './middleware/not-found';
 import healthRouter from './routes/health';
 import authRouter from './modules/auth/auth.routes';
+import friendsRouter from './modules/friends/friends.routes';
+import blocksRouter from './modules/blocks/blocks.routes';
+import dmRouter from './modules/dm/dm.routes';
+import chatsRouter from './modules/chats/chats.routes';
+import messagesRootRouter from './modules/messages/messages-root.routes';
 import { getMe } from './modules/auth/auth.controller';
 import { authMiddleware } from './middleware/auth';
 
@@ -37,6 +42,11 @@ export const createApp = (): Express => {
   // Routes
   app.use(healthRouter);
   app.use('/auth', authRouter);
+  app.use('/friends', friendsRouter);
+  app.use('/blocks', blocksRouter);
+  app.use('/dm', dmRouter);
+  app.use('/chats', chatsRouter);
+  app.use('/messages', authMiddleware, messagesRootRouter);
   app.get('/me', authMiddleware, getMe);
 
   // 404 handler

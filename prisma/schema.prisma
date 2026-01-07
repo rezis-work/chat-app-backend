@@ -19,6 +19,36 @@ enum SessionStatus {
   REVOKED
 }
 
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  BLOCKED
+}
+
+enum DmRequestStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  BLOCKED
+}
+
+enum ChatType {
+  DM
+  GROUP
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum MessageType {
+  TEXT
+  SYSTEM
+}
+
 model User {
   id               String                 @id @default(cuid())
   email            String                 @unique
@@ -33,6 +63,19 @@ model User {
   sessions                Session[]
   emailVerificationTokens EmailVerificationToken[]
   passwordResetTokens     PasswordResetToken[]
+  friendshipsAsA         Friendship[]              @relation("FriendshipUserA")
+  friendshipsAsB         Friendship[]              @relation("FriendshipUserB")
+  friendshipsRequested   Friendship[]             @relation("FriendshipRequestedBy")
+  blocksInitiated         UserBlock[]               @relation("UserBlockBlocker")
+  blocksReceived          UserBlock[]               @relation("UserBlockBlocked")
+  dmRequestsAsA          DmRequest[]                @relation("DmRequestUserA")
+  dmRequestsAsB          DmRequest[]                @relation("DmRequestUserB")
+  dmRequestsInitiated    DmRequest[]                @relation("DmRequestInitiatedBy")
+  chatsCreated           Chat[]                     @relation("ChatCreatedBy")
+  chatMembers            ChatMember[]                @relation("ChatMemberUser")
+  messagesSent           Message[]                   @relation("MessageSender")
+  dmChatsAsA            DmChat[]                     @relation("DmChatUserA")
+  dmChatsAsB            DmChat[]                     @relation("DmChatUserB")
 
   @@map("users")
 }
@@ -98,5 +141,139 @@ model PasswordResetToken {
 
   @@index([userId])
   @@map("password_reset_tokens")
+}
+
+model Friendship {
+  id           String           @id @default(cuid())
+  userAId      String
+  userBId      String
+  requestedById String
+  status       FriendshipStatus @default(PENDING)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  // Relations
+  userA       User   @relation("FriendshipUserA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB       User   @relation("FriendshipUserB", fields: [userBId], references: [id], onDelete: Cascade)
+  requestedBy User   @relation("FriendshipRequestedBy", fields: [requestedById], references: [id], onDelete: Cascade)
+
+  @@unique([userAId, userBId])
+  @@index([userAId])
+  @@index([userBId])
+  @@index([status])
+  @@map("friendships")
+}
+
+model UserBlock {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+
+  // Relations
+  blocker User @relation("UserBlockBlocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("UserBlockBlocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId])
+  @@index([blockedId])
+  @@map("user_blocks")
+}
+
+model DmRequest {
+  id             String         @id @default(cuid())
+  userAId        String
+  userBId        String
+  initiatedById  String
+  status         DmRequestStatus @default(PENDING)
+  lastMessageAt  DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  // Relations
+  userA      User   @relation("DmRequestUserA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB      User   @relation("DmRequestUserB", fields: [userBId], references: [id], onDelete: Cascade)
+  initiatedBy User  @relation("DmRequestInitiatedBy", fields: [initiatedById], references: [id], onDelete: Cascade)
+
+  @@unique([userAId, userBId])
+  @@index([userAId])
+  @@index([userBId])
+  @@index([status])
+  @@map("dm_requests")
+}
+
+model Chat {
+  id        String   @id @default(cuid())
+  type      ChatType
+  title     String?
+  createdById String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  createdBy User        @relation("ChatCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  members   ChatMember[]
+  messages  Message[]
+  dmChat    DmChat?
+
+  @@index([type, updatedAt])
+  @@map("chats")
+}
+
+model ChatMember {
+  id                String      @id @default(cuid())
+  chatId            String
+  userId            String
+  role              MemberRole  @default(MEMBER)
+  joinedAt          DateTime    @default(now())
+  lastReadMessageId String?
+  mutedUntil        DateTime?
+
+  // Relations
+  chat            Chat    @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user            User    @relation("ChatMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  lastReadMessage Message? @relation("MessageReadBy", fields: [lastReadMessageId], references: [id], onDelete: SetNull)
+
+  @@unique([chatId, userId])
+  @@index([userId])
+  @@index([chatId])
+  @@map("chat_members")
+}
+
+model Message {
+  id        String      @id @default(cuid())
+  chatId    String
+  senderId  String
+  type      MessageType @default(TEXT)
+  content   String
+  createdAt DateTime    @default(now())
+  editedAt  DateTime?
+  deletedAt DateTime?
+
+  // Relations
+  chat          Chat         @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender        User         @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  readBy        ChatMember[] @relation("MessageReadBy")
+
+  @@index([chatId, createdAt])
+  @@index([senderId])
+  @@map("messages")
+}
+
+model DmChat {
+  id      String @id @default(cuid())
+  chatId String @unique
+  userAId String
+  userBId String
+
+  // Relations
+  chat  Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  userA User @relation("DmChatUserA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB User @relation("DmChatUserB", fields: [userBId], references: [id], onDelete: Cascade)
+
+  @@unique([userAId, userBId])
+  @@index([userAId])
+  @@index([userBId])
+  @@map("dm_chats")
 }
 
